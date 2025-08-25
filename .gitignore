@@ -3,6 +3,10 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
+#ignore raylib folder
+raylib/
+raylib-master/
+
 #ignore premake folder
 premake/
 
