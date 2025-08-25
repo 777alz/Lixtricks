@@ -14,8 +14,8 @@ float playerRadius = 0.5f;
 
 //gravity and jump
 float playerVelocityY = 0.0f;
-const float gravity = 9.81f;
-const float jumpVelocity = 8.0f;
+constexpr float gravity = 9.81f;
+constexpr float jumpVelocity = 8.0f;
 
 //platform struct
 struct Platform {
@@ -34,39 +34,40 @@ auto getPlatformTopY = [](const Platform& p) {
     return p.position.y + p.size.y / 2;
 	};
 
-auto getPlatformBounds = [&](const Platform& p) {
-    float minX = p.position.x - p.size.x / 2 - playerRadius;
-    float maxX = p.position.x + p.size.x / 2 + playerRadius;
-    float minY = p.position.y - p.size.y / 2 - playerRadius;
-    float maxY = p.position.y + p.size.y / 2 + playerRadius;
-    float minZ = p.position.z - p.size.z / 2 - playerRadius;
-    float maxZ = p.position.z + p.size.z / 2 + playerRadius;
-    return std::make_tuple(minX, maxX, minY, maxY, minZ, maxZ);
-    };
+inline void getPlatformBounds(const Platform& p, float& minX, float& maxX, float& minY, float& maxY, float& minZ, float& maxZ) {
+    minX = p.position.x - p.size.x / 2 - playerRadius;
+    maxX = p.position.x + p.size.x / 2 + playerRadius;
+    minY = p.position.y - p.size.y / 2 - playerRadius;
+    maxY = p.position.y + p.size.y / 2 + playerRadius;
+    minZ = p.position.z - p.size.z / 2 - playerRadius;
+    maxZ = p.position.z + p.size.z / 2 + playerRadius;
+}
 
 // is given position inside any platform bounds?
-auto isCollidingPlatform = [&](Vector3 pos) {
+inline bool isCollidingPlatform(const Vector3& pos) {
     for (const auto& p : platforms) {
-        auto [minX, maxX, minY, maxY, minZ, maxZ] = getPlatformBounds(p);
+        float minX, maxX, minY, maxY, minZ, maxZ;
+        getPlatformBounds(p, minX, maxX, minY, maxY, minZ, maxZ);
         if (pos.x > minX && pos.x < maxX &&
             pos.y > minY && pos.y < maxY &&
             pos.z > minZ && pos.z < maxZ)
             return true;
     }
     return false;
-    };
+}
 
 // is given position on top of any platform?
-auto isOnPlatform = [&](Vector3 pos) {
+inline float isOnPlatform(const Vector3& pos) {
     for (const auto& p : platforms) {
         float topY = getPlatformTopY(p);
-        auto [minX, maxX, minY, maxY, minZ, maxZ] = getPlatformBounds(p);
+        float minX, maxX, minY, maxY, minZ, maxZ;
+        getPlatformBounds(p, minX, maxX, minY, maxY, minZ, maxZ);
 
         if (pos.x > minX && pos.x < maxX &&
             pos.z > minZ && pos.z < maxZ)
         {
-            float toleranceAbove = 0.2f;
-            float toleranceBelow = 0.05f;
+            constexpr float toleranceAbove = 0.2f;
+            constexpr float toleranceBelow = 0.05f;
             float feetY = pos.y - playerRadius;
             if (feetY >= topY - toleranceBelow && feetY <= topY + toleranceAbove) {
                 return topY + playerRadius;
@@ -74,7 +75,7 @@ auto isOnPlatform = [&](Vector3 pos) {
         }
     }
     return -1.0f;
-    };
+}
 
 void GameInit()
 {
@@ -85,13 +86,13 @@ void GameInit()
 	DisableCursor();
 
     if (!platforms.empty()) {
-        // Spawn at the center of the floor (first platform)
+        //spawn on floor (first platform)
         const Platform& floor = platforms[0];
         float floorTopY = getPlatformTopY(floor);
         playerPosition = {
-            floor.position.x,           // center X of the floor
-            floorTopY + playerRadius,   // just above the floor
-            floor.position.z            // center Z of the floor
+            floor.position.x,
+            floorTopY + playerRadius,
+            floor.position.z
         };
     }
 
@@ -117,31 +118,35 @@ bool GameUpdate()
 
     //mouse look
     Vector2 mouseDelta = GetMouseDelta();
-    float sensitivity = 0.003f;
+    constexpr float sensitivity = 0.003f;
 
     cameraYaw -= mouseDelta.x * sensitivity;
     cameraPitch -= mouseDelta.y * sensitivity;
 
-    float pitchLimit = 89.0f * DEG2RAD;
+    constexpr float pitchLimit = 89.0f * DEG2RAD;
     cameraPitch = std::clamp(cameraPitch, -pitchLimit, pitchLimit);
 
     //calculate directions
+    float cosPitch = cosf(cameraPitch);
+    float sinPitch = sinf(cameraPitch);
+    float cosYaw = cosf(cameraYaw);
+    float sinYaw = sinf(cameraYaw);
+
     Vector3 forward = {
-        cosf(cameraPitch) * sinf(cameraYaw),
-        sinf(cameraPitch),
-        cosf(cameraPitch) * cosf(cameraYaw)
+        cosPitch * sinYaw,
+        sinPitch,
+        cosPitch * cosYaw
     };
     forward = Vector3Normalize(forward);
 
     Vector3 left = {
-        cosf(cameraYaw),
+        cosYaw,
         0.0f,
-        -sinf(cameraYaw)
+        -sinYaw
     };
     left = Vector3Normalize(left);
 
-    //movement with collision check
-    Vector3 nextPos = playerPosition;
+	Vector3 nextPos = playerPosition;
 
     //horizontal movement (ignore y for floor collision)
     auto tryMove = [&](const Vector3& dir, float scale) {
