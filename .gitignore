@@ -3,12 +3,6 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
-# --- Raylib / External Libraries ---
-# Ignore raylib if downloaded manually by premake template
-raylib-master/
-raylib/
-raylib-*.zip
-
 #ignore premake folder
 premake/
 
