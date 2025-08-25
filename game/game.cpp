@@ -17,22 +17,68 @@ float playerVelocityY = 0.0f;
 constexpr float gravity = 9.81f;
 constexpr float jumpVelocity = 8.0f;
 
-//platform struct
 struct Platform {
     Vector3 position;
     Vector3 size;
     Color colour;
 };
 
-//list of platforms
 std::vector<Platform> platforms = {
     {Vector3{0, 0, 0}, Vector3{50, 1, 50}, WHITE},
     {Vector3{0, 1.5f, 10}, Vector3{2, 2, 2}, GREEN},
 };
 
+struct Projectile {
+    Vector3 position;
+    Vector3 velocity;
+    float radius;
+    float lifetime;
+};
+
+std::vector<Projectile> projectiles;
+constexpr float projectileSpeed = 60.0f;
+constexpr float projectileRadius = 0.01f;
+constexpr float projectileLifetime = 2.0f;
+
 auto getPlatformTopY = [](const Platform& p) {
     return p.position.y + p.size.y / 2;
 	};
+
+struct Enemy {
+    Vector3 position;
+    Vector3 size;
+    int hitCount;
+    float flashTimer; // seconds left to flash red
+};
+
+std::vector<Enemy> enemies;
+
+constexpr int enemyMaxHits = 5;
+constexpr float enemyFlashDuration = 0.1f;
+constexpr float enemyRadius = 0.5f;
+constexpr float enemySpawnInterval = 2.0f;
+constexpr int enemyMaxCount = 10;
+float enemySpawnTimer = 0.0f;
+
+//collision for projectile/enemy
+inline bool isProjectileCollidingAABB(const Projectile& proj, const Vector3& boxPos, const Vector3& boxSize) {
+    float minX = boxPos.x - boxSize.x / 2;
+    float maxX = boxPos.x + boxSize.x / 2;
+    float minY = boxPos.y - boxSize.y / 2;
+    float maxY = boxPos.y + boxSize.y / 2;
+    float minZ = boxPos.z - boxSize.z / 2;
+    float maxZ = boxPos.z + boxSize.z / 2;
+
+    float closestX = std::clamp(proj.position.x, minX, maxX);
+    float closestY = std::clamp(proj.position.y, minY, maxY);
+    float closestZ = std::clamp(proj.position.z, minZ, maxZ);
+
+    float distSq = (proj.position.x - closestX) * (proj.position.x - closestX)
+        + (proj.position.y - closestY) * (proj.position.y - closestY)
+        + (proj.position.z - closestZ) * (proj.position.z - closestZ);
+
+    return distSq <= (proj.radius * proj.radius);
+}
 
 inline void getPlatformBounds(const Platform& p, float& minX, float& maxX, float& minY, float& maxY, float& minZ, float& maxZ) {
     minX = p.position.x - p.size.x / 2 - playerRadius;
@@ -77,6 +123,44 @@ inline float isOnPlatform(const Vector3& pos) {
     return -1.0f;
 }
 
+inline bool isProjectileCollidingPlatform(const Projectile& proj, const Platform& plat) {
+    float minX, maxX, minY, maxY, minZ, maxZ;
+    minX = plat.position.x - plat.size.x / 2;
+    maxX = plat.position.x + plat.size.x / 2;
+    minY = plat.position.y - plat.size.y / 2;
+    maxY = plat.position.y + plat.size.y / 2;
+    minZ = plat.position.z - plat.size.z / 2;
+    maxZ = plat.position.z + plat.size.z / 2;
+
+    float closestX = std::clamp(proj.position.x, minX, maxX);
+    float closestY = std::clamp(proj.position.y, minY, maxY);
+    float closestZ = std::clamp(proj.position.z, minZ, maxZ);
+
+    float distSq = (proj.position.x - closestX) * (proj.position.x - closestX)
+        + (proj.position.y - closestY) * (proj.position.y - closestY)
+        + (proj.position.z - closestZ) * (proj.position.z - closestZ);
+
+    return distSq <= (proj.radius * proj.radius);
+}
+
+void spawnEnemy()
+{
+	if (enemies.size() >= enemyMaxCount) return;
+
+    //spawn at a random position on floor
+    const Platform& floor = platforms[0];
+    float minX = floor.position.x - floor.size.x / 2 + enemyRadius;
+    float maxX = floor.position.x + floor.size.x / 2 - enemyRadius;
+    float minZ = floor.position.z - floor.size.z / 2 + enemyRadius;
+    float maxZ = floor.position.z + floor.size.z / 2 - enemyRadius;
+    float y = getPlatformTopY(floor) + enemyRadius;
+
+    float x = minX + static_cast<float>(rand()) / RAND_MAX * (maxX - minX);
+    float z = minZ + static_cast<float>(rand()) / RAND_MAX * (maxZ - minZ);
+
+    enemies.push_back({ Vector3{ x, y, z }, Vector3{ 1, 2, 1 }, 0, 0.0f });
+}
+
 void GameInit()
 {
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
@@ -104,6 +188,9 @@ void GameInit()
     Vector3 forward = Vector3Subtract(camera.target, camera.position);
     cameraYaw = atan2f(forward.x, forward.z);
     cameraPitch = asinf(forward.y / Vector3Length(forward));
+
+    enemies.clear();
+    enemySpawnTimer = 0.0f;
 }
 
 void GameCleanup()
@@ -115,6 +202,13 @@ bool GameUpdate()
 {
     float dt = GetFrameTime();
 	float cameraSpeed = playerSpeed * dt;
+
+	//spawn enemies over time
+	enemySpawnTimer += dt;
+	if (enemySpawnTimer >= enemySpawnInterval) {
+		spawnEnemy();
+        enemySpawnTimer = 0.0f;
+	}
 
     //mouse look
     Vector2 mouseDelta = GetMouseDelta();
@@ -148,7 +242,7 @@ bool GameUpdate()
 
 	Vector3 nextPos = playerPosition;
 
-    //horizontal movement (ignore y for floor collision)
+    //horizontal movement
     auto tryMove = [&](const Vector3& dir, float scale) {
         Vector3 candidate = Vector3Add(nextPos, Vector3Scale(dir, scale));
         candidate.y = nextPos.y;
@@ -196,6 +290,59 @@ bool GameUpdate()
 
     playerPosition = nextPos;
 
+	//shoot projectiles
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        Projectile proj;
+        proj.position = playerPosition;
+        proj.velocity = Vector3Scale(forward, projectileSpeed);
+        proj.radius = projectileRadius;
+        proj.lifetime = projectileLifetime;
+        projectiles.push_back(proj);
+	}
+
+	//update projectiles
+    for (auto& proj : projectiles) {
+        proj.position = Vector3Add(proj.position, Vector3Scale(proj.velocity, dt));
+        proj.lifetime -= dt;
+	}
+
+    //enemy hit detection
+    for (auto& enemy : enemies) {
+        if (enemy.flashTimer > 0.0f)
+            enemy.flashTimer -= dt;
+    }
+
+    for (auto& proj : projectiles) {
+        for (auto& enemy : enemies) {
+            if (isProjectileCollidingAABB(proj, enemy.position, enemy.size)) {
+                enemy.hitCount++;
+                enemy.flashTimer = enemyFlashDuration;
+                proj.lifetime = 0.0f;
+                break;
+            }
+        }
+    }
+
+	//remove expired projectiles
+    projectiles.erase(
+        std::remove_if(projectiles.begin(), projectiles.end(),
+            [](const Projectile& p) {
+                if (p.lifetime <= 0.0f) return true;
+                for (const auto& plat : platforms) {
+                    if (isProjectileCollidingPlatform(p, plat)) return true;
+                }
+                return false;
+            }),
+        projectiles.end()
+    );
+
+    //remove dead enemies
+    enemies.erase(
+        std::remove_if(enemies.begin(), enemies.end(),
+            [](const Enemy& e) { return e.hitCount >= enemyMaxHits; }),
+        enemies.end()
+    );
+
     camera.position = playerPosition;
     camera.target = Vector3Add(playerPosition, forward);
 
@@ -213,6 +360,17 @@ void GameDraw()
     for (const auto& p : platforms) {
         DrawCube(p.position, p.size.x, p.size.y, p.size.z, p.colour);
     }
+
+	//draw enemies
+    for (const auto& e : enemies) {
+        Color col = (e.flashTimer > 0.0f) ? RED : BLUE;
+        DrawCube(e.position, e.size.x, e.size.y, e.size.z, col);
+	}
+
+	//draw projectiles
+    for (const auto& p : projectiles) {
+        DrawSphere(p.position, p.radius, YELLOW);
+	}
 
     EndMode3D();
 
