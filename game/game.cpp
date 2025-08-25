@@ -36,7 +36,7 @@ struct Projectile {
 };
 
 std::vector<Projectile> projectiles;
-constexpr float projectileSpeed = 60.0f;
+constexpr float projectileSpeed = 100.0f;
 constexpr float projectileRadius = 0.01f;
 constexpr float projectileLifetime = 2.0f;
 
@@ -374,8 +374,21 @@ void GameDraw()
 
     EndMode3D();
 
+    //draw crosshair at centre of screen
+    int screenWidth = GetScreenWidth();
+    int screenHeight = GetScreenHeight();
+    int cx = screenWidth / 2;
+    int cy = screenHeight / 2;
+    int crosshairSize = 12;
+    int crosshairThickness = 2;
+    //horizontal line
+    DrawRectangle(cx - crosshairSize / 2, cy - crosshairThickness / 2, crosshairSize, crosshairThickness, RAYWHITE);
+    //vertical line
+    DrawRectangle(cx - crosshairThickness / 2, cy - crosshairSize / 2, crosshairThickness, crosshairSize, RAYWHITE);
+
     DrawText("Lixtricks", 10, 10, 12, RAYWHITE);
 	DrawFPS(10, 30);
+    
 
     EndDrawing();
 }
