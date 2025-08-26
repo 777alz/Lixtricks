@@ -3,6 +3,7 @@
 #include "raymath.h"
 #include <vector>
 #include <algorithm>
+#include <random>
 
 //camera
 Camera3D camera = { 0 };
@@ -24,8 +25,8 @@ struct Platform {
 };
 
 std::vector<Platform> platforms = {
-    {Vector3{0, 0, 0}, Vector3{50, 1, 50}, WHITE},
-    {Vector3{0, 1.5f, 10}, Vector3{2, 2, 2}, GREEN},
+    {Vector3{0, 0, 0}, Vector3{50, 1, 50}, DARKGREEN},
+    {Vector3{0, 1.5f, 10}, Vector3{2, 2, 2}, WHITE},
 };
 
 struct Projectile {
@@ -62,31 +63,32 @@ float enemySpawnTimer = 0.0f;
 
 //collision for projectile/enemy
 inline bool isProjectileCollidingAABB(const Projectile& proj, const Vector3& boxPos, const Vector3& boxSize) {
-    float minX = boxPos.x - boxSize.x / 2;
-    float maxX = boxPos.x + boxSize.x / 2;
-    float minY = boxPos.y - boxSize.y / 2;
-    float maxY = boxPos.y + boxSize.y / 2;
-    float minZ = boxPos.z - boxSize.z / 2;
-    float maxZ = boxPos.z + boxSize.z / 2;
+    float minX = boxPos.x - boxSize.x * 0.5f;
+    float maxX = boxPos.x + boxSize.x * 0.5f;
+    float minY = boxPos.y - boxSize.y * 0.5f;
+    float maxY = boxPos.y + boxSize.y * 0.5f;
+    float minZ = boxPos.z - boxSize.z * 0.5f;
+    float maxZ = boxPos.z + boxSize.z * 0.5f;
 
     float closestX = std::clamp(proj.position.x, minX, maxX);
     float closestY = std::clamp(proj.position.y, minY, maxY);
     float closestZ = std::clamp(proj.position.z, minZ, maxZ);
 
-    float distSq = (proj.position.x - closestX) * (proj.position.x - closestX)
-        + (proj.position.y - closestY) * (proj.position.y - closestY)
-        + (proj.position.z - closestZ) * (proj.position.z - closestZ);
+    float dx = proj.position.x - closestX;
+    float dy = proj.position.y - closestY;
+    float dz = proj.position.z - closestZ;
+    float distSq = dx * dx + dy * dy + dz * dz;
 
     return distSq <= (proj.radius * proj.radius);
 }
 
 inline void getPlatformBounds(const Platform& p, float& minX, float& maxX, float& minY, float& maxY, float& minZ, float& maxZ) {
-    minX = p.position.x - p.size.x / 2 - playerRadius;
-    maxX = p.position.x + p.size.x / 2 + playerRadius;
-    minY = p.position.y - p.size.y / 2 - playerRadius;
-    maxY = p.position.y + p.size.y / 2 + playerRadius;
-    minZ = p.position.z - p.size.z / 2 - playerRadius;
-    maxZ = p.position.z + p.size.z / 2 + playerRadius;
+    minX = p.position.x - p.size.x * 0.5f - playerRadius;
+    maxX = p.position.x + p.size.x * 0.5f + playerRadius;
+    minY = p.position.y - p.size.y * 0.5f - playerRadius;
+    maxY = p.position.y + p.size.y * 0.5f + playerRadius;
+    minZ = p.position.z - p.size.z * 0.5f - playerRadius;
+    maxZ = p.position.z + p.size.z * 0.5f + playerRadius;
 }
 
 // is given position inside any platform bounds?
@@ -124,39 +126,45 @@ inline float isOnPlatform(const Vector3& pos) {
 }
 
 inline bool isProjectileCollidingPlatform(const Projectile& proj, const Platform& plat) {
-    float minX, maxX, minY, maxY, minZ, maxZ;
-    minX = plat.position.x - plat.size.x / 2;
-    maxX = plat.position.x + plat.size.x / 2;
-    minY = plat.position.y - plat.size.y / 2;
-    maxY = plat.position.y + plat.size.y / 2;
-    minZ = plat.position.z - plat.size.z / 2;
-    maxZ = plat.position.z + plat.size.z / 2;
+    float minX = plat.position.x - plat.size.x * 0.5f;
+    float maxX = plat.position.x + plat.size.x * 0.5f;
+    float minY = plat.position.y - plat.size.y * 0.5f;
+    float maxY = plat.position.y + plat.size.y * 0.5f;
+    float minZ = plat.position.z - plat.size.z * 0.5f;
+    float maxZ = plat.position.z + plat.size.z * 0.5f;
 
     float closestX = std::clamp(proj.position.x, minX, maxX);
     float closestY = std::clamp(proj.position.y, minY, maxY);
     float closestZ = std::clamp(proj.position.z, minZ, maxZ);
 
-    float distSq = (proj.position.x - closestX) * (proj.position.x - closestX)
-        + (proj.position.y - closestY) * (proj.position.y - closestY)
-        + (proj.position.z - closestZ) * (proj.position.z - closestZ);
+    float dx = proj.position.x - closestX;
+    float dy = proj.position.y - closestY;
+    float dz = proj.position.z - closestZ;
+    float distSq = dx * dx + dy * dy + dz * dz;
 
     return distSq <= (proj.radius * proj.radius);
 }
 
+float getRandomFloat(float min, float max) {
+    thread_local static std::mt19937 rng{ std::random_device{}() };
+    std::uniform_real_distribution<float> dist(min, max);
+    return dist(rng);
+}
+
 void spawnEnemy()
 {
-	if (enemies.size() >= enemyMaxCount) return;
+    if (enemies.size() >= enemyMaxCount) return;
 
     //spawn at a random position on floor
     const Platform& floor = platforms[0];
-    float minX = floor.position.x - floor.size.x / 2 + enemyRadius;
-    float maxX = floor.position.x + floor.size.x / 2 - enemyRadius;
-    float minZ = floor.position.z - floor.size.z / 2 + enemyRadius;
-    float maxZ = floor.position.z + floor.size.z / 2 - enemyRadius;
+    float minX = floor.position.x - floor.size.x * 0.5f + enemyRadius;
+    float maxX = floor.position.x + floor.size.x * 0.5f - enemyRadius;
+    float minZ = floor.position.z - floor.size.z * 0.5f + enemyRadius;
+    float maxZ = floor.position.z + floor.size.z * 0.5f - enemyRadius;
     float y = getPlatformTopY(floor) + enemyRadius;
 
-    float x = minX + static_cast<float>(rand()) / RAND_MAX * (maxX - minX);
-    float z = minZ + static_cast<float>(rand()) / RAND_MAX * (maxZ - minZ);
+    float x = getRandomFloat(minX, maxX);
+    float z = getRandomFloat(minZ, maxZ);
 
     enemies.push_back({ Vector3{ x, y, z }, Vector3{ 1, 2, 1 }, 0, 0.0f });
 }
@@ -292,12 +300,12 @@ bool GameUpdate()
 
 	//shoot projectiles
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        Projectile proj;
-        proj.position = playerPosition;
-        proj.velocity = Vector3Scale(forward, projectileSpeed);
-        proj.radius = projectileRadius;
-        proj.lifetime = projectileLifetime;
-        projectiles.push_back(proj);
+        projectiles.push_back({
+            playerPosition,
+            Vector3Scale(forward, projectileSpeed),
+            projectileRadius,
+            projectileLifetime
+            });
 	}
 
 	//update projectiles
@@ -313,6 +321,7 @@ bool GameUpdate()
     }
 
     for (auto& proj : projectiles) {
+        if (proj.lifetime <= 0.0f) continue;
         for (auto& enemy : enemies) {
             if (isProjectileCollidingAABB(proj, enemy.position, enemy.size)) {
                 enemy.hitCount++;
@@ -352,7 +361,7 @@ bool GameUpdate()
 void GameDraw()
 {
     BeginDrawing();
-    ClearBackground(DARKGRAY);
+    ClearBackground(SKYBLUE);
 
     BeginMode3D(camera);
 
@@ -363,7 +372,7 @@ void GameDraw()
 
 	//draw enemies
     for (const auto& e : enemies) {
-        Color col = (e.flashTimer > 0.0f) ? RED : BLUE;
+        Color col = (e.flashTimer > 0.0f) ? RED : DARKPURPLE;
         DrawCube(e.position, e.size.x, e.size.y, e.size.z, col);
 	}
 
