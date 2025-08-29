@@ -24,6 +24,11 @@ struct Player {
     float cameraPitch;
     float radius;
     float velocityY;
+    int health;
+    int enemiesDefeated; // Add
+    int shotsFired;      // Add
+    int shotsHit;        // Add
+    float survivalTime;  // Add
 };
 
 struct Platform {
@@ -42,8 +47,9 @@ struct Projectile {
 struct Enemy {
     Vector3 position;
     Vector3 size;
-    int hitCount;
+    int health;
     float flashTimer;
+    float damageCooldown;
 };
 
 struct World {

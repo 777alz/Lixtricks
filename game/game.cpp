@@ -52,8 +52,15 @@ Player player = {
     0.0f, // cameraYaw
     0.0f, // cameraPitch
     0.5f, // radius
-    0.0f // velocityY
+    0.0f, // velocityY
+    100,  // health
+    0,    // enemiesDefeated
+    0,    // shotsFired
+    0,    // shotsHit
+    0.0f  // survivalTime
 };
+
+bool isGameOver = false;
 
 // -----------------------------------------------------------------------------
 // Utility / Collision
@@ -131,6 +138,16 @@ inline float isOnPlatform(const Vector3& pos) {
 inline bool ProjectileHitsPlatform(const Projectile& pr, const Platform& plat) {
     return SphereVsAABB(pr.position, pr.radius, plat.position, plat.size);
 }
+inline bool EnemyCollidesPlatform(const Vector3& pos, float radius) {
+    // Skip the first platform (floor)
+    for (size_t i = 1; i < world.platforms.size(); ++i) {
+        const auto& p = world.platforms[i];
+        if (SphereVsAABB(pos, radius, p.position, p.size)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 inline bool SweptSphereVsAABB(const Vector3& start, const Vector3& end, float radius, const Vector3& boxPos, const Vector3& boxSize)
 {
@@ -184,7 +201,8 @@ void spawnEnemy() {
     world.enemies.push_back({
         { getRandomFloat(minX, maxX), y, getRandomFloat(minZ, maxZ) },
         { 1, 2, 1 },
-        0,
+        100,
+        0.0f,
         0.0f
     });
 }
@@ -223,6 +241,12 @@ void GameInit() {
     world.enemies.reserve(enemyMaxCount);
 
     world.enemySpawnTimer = 0.0f;
+    player.health = 100;
+    player.enemiesDefeated = 0;
+    player.shotsFired = 0;
+    player.shotsHit = 0;
+    player.survivalTime = 0.0f;
+    isGameOver = false;
 }
 
 void GameCleanup() {
@@ -233,9 +257,16 @@ void GameCleanup() {
 // Frame Update
 // -----------------------------------------------------------------------------
 bool GameUpdate() {
-    const float dt = GetFrameTime();
+    if (isGameOver) {
+        if (IsKeyPressed(KEY_SPACE)) {
+            GameInit();
+        }
+        return true;
+    }
 
-    // Enemy spawn timer
+    const float dt = GetFrameTime();
+    player.survivalTime += dt;
+
     world.enemySpawnTimer += dt;
     if (world.enemySpawnTimer >= enemySpawnInterval) {
         spawnEnemy();
@@ -275,6 +306,7 @@ bool GameUpdate() {
 
     const float cameraSpeed = player.speed * dt;
 
+	// Movement
     auto tryMove = [&](const Vector3& dir, float scale) {
         const Vector3 delta    = Vector3Scale(dir, scale);
         Vector3 candidate      = nextPos;
@@ -396,6 +428,7 @@ bool GameUpdate() {
             projectileRadius,
             projectileLifetime
         });
+        player.shotsFired++;
     }
 
     // Update enemy flash timers
@@ -425,27 +458,82 @@ bool GameUpdate() {
 
         for (auto& enemy : world.enemies) {
             if (SweptSphereVsAABB(prevPos, proj.position, proj.radius, enemy.position, enemy.size)) {
-                ++enemy.hitCount;
+                enemy.health -= 25;
                 enemy.flashTimer = enemyFlashDuration;
                 proj.lifetime = 0.0f;
+                player.shotsHit++;
                 break;
             }
         }
     }
 
-    // Compact expired projectiles
+	// Remove dead projectiles
     world.projectiles.erase(
         std::remove_if(world.projectiles.begin(), world.projectiles.end(),
                        [](const Projectile& p) { return p.lifetime <= 0.0f; }),
         world.projectiles.end()
-    );
+	);
 
-    // Remove dead enemies
+    // Remove dead enemies and count defeated
+    int defeatedBefore = player.enemiesDefeated;
+    size_t oldCount = world.enemies.size();
     world.enemies.erase(
         std::remove_if(world.enemies.begin(), world.enemies.end(),
-                       [](const Enemy& e) { return e.hitCount >= enemyMaxHits; }),
+                       [](const Enemy& e) { return e.health <= 0; }),
         world.enemies.end()
     );
+    player.enemiesDefeated += (int)(oldCount - world.enemies.size());
+
+    // --- Enemy AI movement and player damage ---
+    constexpr float enemySpeed = 2.5f;
+    constexpr float damageInterval = 2.0f;
+    constexpr int damageAmount = 25;
+
+    for (auto& enemy : world.enemies) {
+        // Move towards player (XZ plane only)
+        Vector3 toPlayer = {
+            player.position.x - enemy.position.x,
+            0.0f,
+            player.position.z - enemy.position.z
+        };
+        float dist = Vector3Length(toPlayer);
+        if (dist > 0.01f) {
+            Vector3 dir = Vector3Scale(toPlayer, 1.0f / dist);
+            Vector3 candidate = enemy.position;
+            candidate.x += dir.x * enemySpeed * dt;
+            candidate.z += dir.z * enemySpeed * dt;
+
+            if (!EnemyCollidesPlatform(candidate, enemy.size.x * 0.5f)) {
+                enemy.position.x = candidate.x;
+                enemy.position.z = candidate.z;
+            }
+            // else: don't move if would collide
+        }
+
+        // Update damage cooldown
+        if (enemy.damageCooldown > 0.0f)
+            enemy.damageCooldown -= dt;
+
+        // Check collision with player (sphere vs sphere)
+        float combinedRadius = player.radius + enemy.size.x * 0.5f;
+        Vector3 diff = {
+            player.position.x - enemy.position.x,
+            player.position.y - enemy.position.y,
+            player.position.z - enemy.position.z
+        };
+        float distToPlayer = Vector3Length(diff);
+        if (distToPlayer < combinedRadius) {
+            if (enemy.damageCooldown <= 0.0f) {
+                player.health -= damageAmount;
+                if (player.health < 0) player.health = 0;
+                enemy.damageCooldown = damageInterval;
+            }
+        }
+    }
+
+    if (player.health <= 0) {
+        isGameOver = true;
+    }
 
     // Camera
     world.camera.position = player.position;
@@ -462,6 +550,32 @@ bool GameUpdate() {
 void GameDraw() {
     BeginDrawing();
     ClearBackground(SKYBLUE);
+
+    // Calculate score and accuracy
+    int score = player.enemiesDefeated * 100;
+    float accuracy = (player.shotsFired > 0) ? (float)player.shotsHit / player.shotsFired : 0.0f;
+    int finalScore = (int)(score + score * accuracy);
+
+    if (isGameOver) {
+        // Game Over Screen
+        const char* msg = "GAME OVER";
+        const char* restartMsg = "Press SPACE to restart";
+        int screenWidth = GetScreenWidth();
+        int screenHeight = GetScreenHeight();
+        int msgWidth = MeasureText(msg, 64);
+        int restartWidth = MeasureText(restartMsg, 32);
+
+        DrawText(msg, (screenWidth - msgWidth) / 2, screenHeight / 2 - 120, 64, RED);
+        DrawText(restartMsg, (screenWidth - restartWidth) / 2, screenHeight / 2 - 40, 32, RAYWHITE);
+
+        DrawText(TextFormat("Score: %d", finalScore), screenWidth / 2 - 100, screenHeight / 2 + 20, 32, YELLOW);
+        DrawText(TextFormat("Enemies Defeated: %d", player.enemiesDefeated), screenWidth / 2 - 100, screenHeight / 2 + 60, 24, RAYWHITE);
+        DrawText(TextFormat("Accuracy: %.1f%%", accuracy * 100.0f), screenWidth / 2 - 100, screenHeight / 2 + 90, 24, RAYWHITE);
+        DrawText(TextFormat("Survival Time: %.1fs", player.survivalTime), screenWidth / 2 - 100, screenHeight / 2 + 120, 24, RAYWHITE);
+
+        EndDrawing();
+        return;
+    }
 
     BeginMode3D(world.camera);
 
@@ -492,5 +606,13 @@ void GameDraw() {
 
     DrawText("Lixtricks", 10, 10, 12, RAYWHITE);
     DrawFPS(10, 30);
+
+    DrawText(TextFormat("Health: %d", player.health), 10, 50, 20, RED);
+
+    DrawText(TextFormat("Score: %d", finalScore), 10, 80, 20, YELLOW);
+    DrawText(TextFormat("Enemies Defeated: %d", player.enemiesDefeated), 10, 110, 20, RAYWHITE);
+    DrawText(TextFormat("Accuracy: %.1f%%", accuracy * 100.0f), 10, 140, 20, RAYWHITE);
+    DrawText(TextFormat("Survival Time: %.1fs", player.survivalTime), 10, 170, 20, RAYWHITE);
+
     EndDrawing();
 }
