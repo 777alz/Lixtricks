@@ -25,10 +25,10 @@ struct Player {
     float radius;
     float velocityY;
     int health;
-    int enemiesDefeated; // Add
-    int shotsFired;      // Add
-    int shotsHit;        // Add
-    float survivalTime;  // Add
+    int enemiesDefeated;
+    int shotsFired;      
+    int shotsHit;        
+    float survivalTime;
 };
 
 struct Platform {
